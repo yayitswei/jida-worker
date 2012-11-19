@@ -21,6 +21,7 @@
   (or (System/getenv "DATOMIC_URI")
       "datomic:free://localhost:4334/git"))
 
+
 (def redis-conn (atom nil))
 
 (defn db []
