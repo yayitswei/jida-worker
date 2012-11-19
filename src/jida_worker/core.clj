@@ -24,33 +24,29 @@
 (def redis-conn (atom nil))
 
 (defn db []
+  "Returns the existing redis connection or establishes a new one"
   (or @redis-conn
       (reset! redis-conn (redis/init :url redis-uri))))
 
 (defn git-clone [repo-address destination]
+  "Clones a given REPO-ADDRESS to DESTINATION via cd'ing into the directory and shelling out to git. Returns the absolute directory of the clone git repositor."
   (log "Git cloning into " destination)
   (let [[[_ dirname]] (re-seq #".*/(.*).git" repo-address)]
     (sh "git" "clone" repo-address)
     (str (clojure.string/trim (:out (sh "pwd"))) "/" dirname)))
 
-(defn codeq-import [source-path codeq-jar-path datomic-uri]
-  (log "Running Codeq on " (clojure.string/trim source-path) "...")
-  (sh "cd" (clojure.string/trim source-path))
-  (let [cmd ["java"
-           "-server" "-Xmx1g"
-           "-jar" codeq-jar-path
-           datomic-uri]]
-    (log (apply sh cmd))))
+(defn codeq-import! []
+  "Runs the codeq-importer and analyzer in one go. You must have previously cd'ed into the git repo's directory."
+  (codeq/main datomic-uri))
 
 (defn process-repo [repo-address]
+  "Given a repo address, import and analyze it via codeq, and store the result in a datomic database. Can be run multiple time idempotently."
   (with-sh-dir (fs/temp-dir "jida-worker-")
-    (let [cloned-dir (git-clone repo-address ".")
-          cd (sh "cd" cloned-dir)
-          conn '(codeq/ensure-db datomic-uri)
-          [repo-uri repo-name] '(codeq/get-repo-uri)]
-      (codeq/main datomic-uri))))
+    (sh "cd" (git-clone repo-address "."))
+    (codeq-import!)))
 
 (defn get-tasks []
+  "Retrieves a task from the queue via a BLOCKING call"
   (log "Waiting for a task..")
   (let [[_ address] (redis/blpop (db) ["tasks"] 0)]
     (log "Processing repo at " address)
