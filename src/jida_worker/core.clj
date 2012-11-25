@@ -21,13 +21,19 @@
       (let [uri redis-uri]
         (reset! redis-conn (redis/init :url uri)))))
 
+(defn success? [{exit :exit}]
+  (= 0 exit))
+
 (def working-dir "/tmp")
-(defn process-repo [address]
-  (let [[[_ dirname]] (re-seq #".*/(.*).git" address)]
+(defn git-clone [address]
+  (success?
     (with-sh-dir
       working-dir
       (println "Cloning " address "..")
-      (sh "git" "clone" address))
+      (sh "git" "clone" address))))
+
+(defn import-into-codeq [dirname]
+  (success?
     (with-sh-dir
       (str working-dir "/" dirname)
       (println "Importing into codeq..")
@@ -37,6 +43,13 @@
             "-jar" codec-jar-path
             datomic-uri))
       (println "Done."))))
+
+(defn process-repo [address]
+  (when (re-matches #"https:\/\/.*" address)
+    (try
+      (let [[[_ dirname]] (re-seq #".*/(.*).git" address)]
+        (when (git-clone address) (import-into-codeq dirname)))
+      (catch Exception e (println "ERROR: " e)))))
 
 (defn get-tasks []
   (println "Waiting for a task..")
