@@ -1,6 +1,6 @@
 (ns jida-worker.core
   (:use [clojure.java.shell :only [sh with-sh-dir]])
-  (:require [clj-redis.client :as redis])
+  (:require [taoensso.carmine :as car])
   (:gen-class))
 
 (def codec-jar-path
@@ -12,14 +12,13 @@
       "datomic:free://localhost:4334/git"))
 
 (def redis-uri
-  (or (System/getenv "REDIS_URI")
-      "redis://localhost"))
+  (java.net.URI. (or (System/getenv "REDIS_URI")
+                     "redis://96.126.103.193:6379")))
+(def pool      (car/make-conn-pool))
+(def conn-spec (car/make-conn-spec :host (.getHost redis-uri)
+                                   :port (.getPort redis-uri)))
 
-(def redis-conn (atom nil))
-(defn db []
-  (or @redis-conn
-      (let [uri redis-uri]
-        (reset! redis-conn (redis/init :url uri)))))
+(defmacro wcar [& body] `(car/with-conn pool conn-spec ~@body))
 
 (defn success? [{exit :exit}]
   (= 0 exit))
@@ -53,7 +52,7 @@
 
 (defn get-tasks []
   (println "Waiting for a task..")
-  (let [[_ address] (redis/blpop (db) ["tasks"] 0)]
+  (let [[_ address] (wcar (car/blpop "tasks" 0))]
     (process-repo address)))
 
 (defn -main [& m]
